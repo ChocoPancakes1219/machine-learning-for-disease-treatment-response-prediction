@@ -43,7 +43,6 @@ for column in df:
     for i in range((df_outliers.shape[0])):
         label_index = df_outliers.index[i]
         new_df.loc[label_index, column] = df[column].median()
-display(new_df)
 
 
 #NORMALISATION
