@@ -166,7 +166,7 @@ n_folds = 5
 
 # K-fold cross validation
 def Regkf(ag, X, y, name):
-    scores = cross_val_score(ag, X, y, cv=n_folds,scoring="neg_mean_absolute_percentage_error")
+    scores = cross_val_score(ag, X, y, cv=n_folds,scoring="neg_mean_squared_error")
     print('The {}-fold cross-validation mean squared error score for {} is {:.2f} '.format(n_folds, name, abs(scores.mean())))
 
 # plot
@@ -191,7 +191,7 @@ Regplot(Regy_test, y_pred, name)
 
 
 # SVM
-svr = SVR(C=2, epsilon=0.5,gamma=0.125)
+svr = SVR(C=2, epsilon=0.5,gamma=0.25)
 svr.fit(Regx_train, Regy_train)
 Regy_pred = svr.predict(Regx_test)
 name = 'SVM'
@@ -223,19 +223,19 @@ optimal_svr_gamma = svr_gammas[np.where(variance_of_gram_matrix == np.max(varian
 
 # Optimize epsilon with cross-validation
 svr_model_in_cv = GridSearchCV(SVR(kernel='rbf', C=3, gamma=optimal_svr_gamma), {'epsilon': svr_epsilons},
-                               cv=fold_number)
+                               cv=fold_number,scoring="neg_mean_squared_error")
 svr_model_in_cv.fit(Regx_train, Regy_train)
 optimal_svr_epsilon = svr_model_in_cv.best_params_['epsilon']
 
 # Optimize C with cross-validation
 svr_model_in_cv = GridSearchCV(SVR(kernel='rbf', epsilon=optimal_svr_epsilon, gamma=optimal_svr_gamma),
-                               {'C': svr_cs}, cv=fold_number)
+                               {'C': svr_cs}, cv=fold_number,scoring="neg_mean_squared_error")
 svr_model_in_cv.fit(Regx_train, Regy_train)
 optimal_svr_c = svr_model_in_cv.best_params_['C']
 
 # Optimize gamma with cross-validation (optional)
 svr_model_in_cv = GridSearchCV(SVR(kernel='rbf', epsilon=optimal_svr_epsilon, C=optimal_svr_c),
-                               {'gamma': svr_gammas}, cv=fold_number)
+                               {'gamma': svr_gammas}, cv=fold_number,scoring="neg_mean_squared_error")
 svr_model_in_cv.fit(Regx_train, Regy_train)
 optimal_svr_gamma = svr_model_in_cv.best_params_['gamma']
 
