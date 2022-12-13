@@ -85,45 +85,9 @@ normalised_df_reg = normalize(final_df_reg,'regression')
 
 
 # FEATURE SELECTION
-# Classification
-
-#separate target variable for classification (PCR)
-x_classif = normalised_df_classif.drop(labels=['pCR (outcome)'], axis=1)
-y_classif = normalised_df_classif['pCR (outcome)']
-
-#apply ANOVA for classification
-from sklearn.feature_selection import f_classif, SelectKBest
-import math
-
-fs = SelectKBest(score_func = f_classif, k= 53)  #k value for when P_value < 0.05
-
-# Apply feature selection
-fs.fit(x_classif,y_classif)
-
-#declare variable to put selected features for classification
-df_classif_final = pd.DataFrame()
-
-def list_ceil(x):
-    return[math.ceil(i) in x]
-
-features_score = pd.DataFrame(fs.scores_)
-features_pvalue = pd.DataFrame(np.round(fs.pvalues_,4))
-features = pd.DataFrame(x_classif.columns)
-feature_score = pd.concat([features,features_score,features_pvalue],axis=1)
-
-# Assign column names
-feature_score.columns = ['Input_Features','Score','P_Value']
-chosen_features = feature_score.nlargest(53,columns='Score')
-
-# Add selected features into a new dataframe
-for feature in chosen_features['Input_Features']:
-    df_classif_final = pd.concat([df_classif_final, normalised_df_classif[feature]], axis=1)
-
-
-# Regression
 
 #separate target value for regression (RFS)
-x_reg = normalised_df_reg.drop(labels=['RelapseFreeSurvival (outcome)'], axis=1)
+x_reg = normalised_df_reg.drop(labels=['RelapseFreeSurvival (outcome)','pCR (outcome)'], axis=1)
 y_reg = normalised_df_reg['RelapseFreeSurvival (outcome)']
 
 #apply ANOVA for regression
@@ -154,8 +118,7 @@ chosen_features = feature_score.nlargest(20,columns='Score')
 for feature in chosen_features['Input_Features']:
     df_reg_final = pd.concat([df_reg_final, normalised_df_reg[feature]], axis=1)
 
-print(df_reg.shape)
-print(df_reg_final.shape)
+
 # Split data
 Regx_train, Regx_test, Regy_train, Regy_test = train_test_split(df_reg_final, y_reg, test_size=0.2, random_state = 42)
 
@@ -166,7 +129,7 @@ n_folds = 5
 
 # K-fold cross validation
 def Regkf(ag, X, y, name):
-    scores = cross_val_score(ag, X, y, cv=n_folds,scoring="neg_mean_squared_error")
+    scores = cross_val_score(ag, X, y, cv=n_folds,scoring="neg_mean_absolute_error")
     print('The {}-fold cross-validation mean squared error score for {} is {:.2f} '.format(n_folds, name, abs(scores.mean())))
 
 # plot
@@ -190,13 +153,7 @@ Regkf(reg,x_reg,y_reg, name)
 Regplot(Regy_test, y_pred, name)
 
 
-# SVM
-svr = SVR(C=2, epsilon=0.5,gamma=0.25)
-svr.fit(Regx_train, Regy_train)
-Regy_pred = svr.predict(Regx_test)
-name = 'SVM'
-Regkf(svr,x_reg,y_reg, name)
-Regplot(Regy_test, y_pred, name)
+
 
 # Settings
 svr_cs = 2 ** np.arange(-5, 11, dtype=float)  # Candidates of C
@@ -223,21 +180,22 @@ optimal_svr_gamma = svr_gammas[np.where(variance_of_gram_matrix == np.max(varian
 
 # Optimize epsilon with cross-validation
 svr_model_in_cv = GridSearchCV(SVR(kernel='rbf', C=3, gamma=optimal_svr_gamma), {'epsilon': svr_epsilons},
-                               cv=fold_number,scoring="neg_mean_squared_error")
+                               cv=fold_number,scoring="neg_mean_absolute_error")
 svr_model_in_cv.fit(Regx_train, Regy_train)
 optimal_svr_epsilon = svr_model_in_cv.best_params_['epsilon']
 
 # Optimize C with cross-validation
 svr_model_in_cv = GridSearchCV(SVR(kernel='rbf', epsilon=optimal_svr_epsilon, gamma=optimal_svr_gamma),
-                               {'C': svr_cs}, cv=fold_number,scoring="neg_mean_squared_error")
+                               {'C': svr_cs}, cv=fold_number,scoring="neg_mean_absolute_error")
 svr_model_in_cv.fit(Regx_train, Regy_train)
 optimal_svr_c = svr_model_in_cv.best_params_['C']
 
 # Optimize gamma with cross-validation (optional)
 svr_model_in_cv = GridSearchCV(SVR(kernel='rbf', epsilon=optimal_svr_epsilon, C=optimal_svr_c),
-                               {'gamma': svr_gammas}, cv=fold_number,scoring="neg_mean_squared_error")
+                               {'gamma': svr_gammas}, cv=fold_number,scoring="neg_mean_absolute_error")
 svr_model_in_cv.fit(Regx_train, Regy_train)
 optimal_svr_gamma = svr_model_in_cv.best_params_['gamma']
+
 
 # Check time in hyperparameter optimization
 elapsed_time = time.time() - start_time
@@ -246,7 +204,76 @@ print("Elapsed time in hyperparameter optimization: {0} [sec]".format(elapsed_ti
 # Check optimized hyperparameters
 print("C: {0}, Epsion: {1}, Gamma: {2}".format(optimal_svr_c, optimal_svr_epsilon, optimal_svr_gamma))
 
+# Implement SVM
+svr = SVR(kernel='rbf',C=optimal_svr_c, epsilon=optimal_svr_epsilon,gamma=optimal_svr_gamma)
+svr.fit(Regx_train, Regy_train)
+Regy_pred = svr.predict(Regx_test)
+name = 'SVM'
+Regkf(svr,Regx_train, Regy_train, name)
+Regplot(Regy_test, y_pred, name)
 
+# Finding best parameters for MLP
+# setting variable
+start=10
+stop=100
+step = 5
+
+parameter_space = {
+    'hidden_layer_sizes': [(n,) for n in range(start, stop, step)],
+    'activation': ['tanh'],
+    'solver': ['sgd', 'adam'],
+    'alpha': 2 ** np.arange(-10, 1, dtype=float),
+    'learning_rate': ['constant','adaptive'],
+}
+
+from sklearn.neural_network import MLPRegressor
+mlp = MLPRegressor(max_iter=5000)
+clf = GridSearchCV(mlp, parameter_space, n_jobs=-1, cv=3,scoring="neg_mean_absolute_error")
+clf.fit(Regx_train, Regy_train)
+# Best parameter set
+print('Best parameters found:\n', clf.best_params_)
+mlp_best_param=clf.best_params_
+
+mp = MLPRegressor(activation= mlp_best_param['activation'],alpha=mlp_best_param['alpha']
+                  , hidden_layer_sizes=mlp_best_param['hidden_layer_sizes'],
+                  learning_rate=mlp_best_param['learning_rate'],solver=mlp_best_param['solver'],max_iter=50000)
+mp.fit(Regx_train, Regy_train)
+Regy_pred = mp.predict(Regx_test)
+name = 'MLP'
+Regkf(mp,Regx_train, Regy_train, name)
+Regplot(Regy_test, y_pred, name)
+
+
+param_grid = [
+  {     'splitter': ['best', 'random'],
+        'max_depth': np.arange(1, 20, dtype=int),
+        'max_leaf_nodes': np.arange(1, 20, dtype=int),
+        'max_features':[ np.arange(1, 20, dtype=int),'None','sqrt','log2'],
+    },
+]
+
+
+from sklearn.tree import DecisionTreeRegressor
+dtree=DecisionTreeRegressor()
+clf = GridSearchCV(dtree, param_grid, n_jobs=-1, cv=3,scoring="neg_mean_absolute_error")
+clf.fit(Regx_train, Regy_train)
+# Best paramete set
+print('Best parameters found:\n', clf.best_params_)
+
+dt_best_param=clf.best_params_
+
+dt = DecisionTreeRegressor(
+                            max_depth= dt_best_param['max_depth'],
+                            max_features= dt_best_param['max_features'],
+                            max_leaf_nodes= dt_best_param['max_leaf_nodes'],
+                            splitter=dt_best_param['splitter']
+)
+
+dt.fit(Regx_train, Regy_train)
+y_pred = dt.predict(Regx_test)
+name = 'Decision Tree'
+Regkf(dt, Regx_train, Regy_train, name)
+Regplot(Regy_test, y_pred, name)
 
 
 plt.show()
